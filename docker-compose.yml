@@ -1,0 +1,120 @@
+# RustDesk Server Docker Compose Configuration
+# Self-hosted remote desktop relay server
+# https://github.com/a-ariff/rustdesk-server
+
+version: '3.8'
+
+services:
+  # RustDesk Relay Server (HBBS)
+  hbbs:
+    container_name: rustdesk-hbbs
+    image: rustdesk/rustdesk-server:latest
+    command: hbbs -r hbbr:21117 -k _
+    volumes:
+      - ./data:/root
+    networks:
+      - rustdesk-net
+    ports:
+      - "${HBBS_PORT:-21115}:21115"
+      - "${HBBS_PORT_NAT:-21116}:21116/tcp"
+      - "${HBBS_PORT_NAT:-21116}:21116/udp"
+      - "${HBBS_WEB_PORT:-21118}:21118"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+      - ENCRYPTED_ONLY=${ENCRYPTED_ONLY:-Y}
+    restart: unless-stopped
+    depends_on:
+      - hbbr
+    healthcheck:
+      test: ["CMD", "netstat", "-tuln", "|", "grep", "21115"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # RustDesk Bridge Server (HBBR)
+  hbbr:
+    container_name: rustdesk-hbbr
+    image: rustdesk/rustdesk-server:latest
+    command: hbbr -k _
+    volumes:
+      - ./data:/root
+    networks:
+      - rustdesk-net
+    ports:
+      - "${HBBR_PORT:-21117}:21117"
+      - "${HBBR_PORT_ALT:-21119}:21119"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "netstat", "-tuln", "|", "grep", "21117"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Web Admin Panel (Experimental)
+  # Uncomment the section below to enable web management interface
+  # admin:
+  #   container_name: rustdesk-admin
+  #   image: rustdesk/rustdesk-server:latest
+  #   command: admin
+  #   volumes:
+  #     - ./data:/root
+  #   networks:
+  #     - rustdesk-net
+  #   ports:
+  #     - "${ADMIN_PORT:-21114}:21114"
+  #   environment:
+  #     - RUST_LOG=${RUST_LOG:-info}
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - hbbs
+  #     - hbbr
+
+  # Optional: Nginx Reverse Proxy for SSL/HTTPS
+  # Uncomment and configure for production SSL setup
+  # nginx:
+  #   container_name: rustdesk-nginx
+  #   image: nginx:alpine
+  #   ports:
+  #     - "443:443"
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./nginx/ssl:/etc/ssl/certs:ro
+  #   networks:
+  #     - rustdesk-net
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - hbbs
+  #     - hbbr
+
+networks:
+  rustdesk-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  rustdesk-data:
+    driver: local
+
+# Health check and monitoring can be added with:
+# docker-compose ps
+# docker-compose logs -f hbbs
+# docker-compose logs -f hbbr
+
+# To start: docker-compose up -d
+# To stop:  docker-compose down
+# To update: docker-compose pull && docker-compose up -d
+# To view logs: docker-compose logs -f
+
+# For production deployment:
+# 1. Ensure ports 21115-21119 are open in your firewall
+# 2. Configure your domain/DNS to point to this server
+# 3. Consider setting up SSL/TLS with the nginx service
+# 4. Regularly backup the ./data directory
+# 5. Monitor resource usage and logs
